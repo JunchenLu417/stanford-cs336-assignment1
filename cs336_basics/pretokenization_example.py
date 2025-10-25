@@ -5,13 +5,14 @@ from typing import BinaryIO
 def find_chunk_boundaries(
     file: BinaryIO,
     desired_num_chunks: int,
-    split_special_token: bytes,
+    split_special_token: list[bytes],
 ) -> list[int]:
     """
     Chunk the file into parts that can be counted independently.
     May return fewer chunks if the boundaries end up overlapping.
     """
-    assert isinstance(split_special_token, bytes), "Must represent special token as a bytestring"
+    # assert isinstance(split_special_token, bytes), "Must represent special token as a bytestring"
+    assert all(isinstance(token, bytes) for token in split_special_token), "Each special token must be a bytestring"
 
     # Get total file size in bytes
     file.seek(0, os.SEEK_END)
@@ -39,7 +40,13 @@ def find_chunk_boundaries(
                 break
 
             # Find the special token in the mini chunk
-            found_at = mini_chunk.find(split_special_token)
+            # found_at = mini_chunk.find(split_special_token)
+            found_at = -1
+            for token in split_special_token:
+                idx = mini_chunk.find(token)
+                if idx != -1:
+                    found_at = idx if found_at == -1 else min(idx, found_at)
+
             if found_at != -1:
                 chunk_boundaries[bi] = initial_position + found_at
                 break
@@ -48,18 +55,21 @@ def find_chunk_boundaries(
     # Make sure all boundaries are unique, but might be fewer than desired_num_chunks
     return sorted(set(chunk_boundaries))
 
+from multiprocessing import cpu_count
 
 ## Usage
-with open("../data/TinyStoriesV2-GPT4-valid.txt", "rb") as f:
-    num_processes = 4
-    boundaries = find_chunk_boundaries(f, num_processes, b"<|endoftext|>")
+if __name__ == "__main__":
+    with open("../data/TinyStoriesV2-GPT4-valid.txt", "rb") as f:
+        num_processes = cpu_count()
+        print(f"try to spawn {num_processes} processes")
+        boundaries = find_chunk_boundaries(f, num_processes, [b"<|endoftext|>"])
 
-    # The following is a serial implementation, but you can parallelize this
-    # by sending each start/end pair to a set of processes.
-    for start, end in zip(boundaries[:-1], boundaries[1:]):
-        
-        print(f"start={start}, end={end}")   # <- print values here
-        
-        f.seek(start)
-        chunk = f.read(end - start).decode("utf-8", errors="ignore")
-        # Run pre-tokenization on your chunk and store the counts for each pre-token
+        # The following is a serial implementation, but you can parallelize this
+        # by sending each start/end pair to a set of processes.
+        for start, end in zip(boundaries[:-1], boundaries[1:]):
+            
+            print(f"start={start}, end={end}")   # <- print values here
+            
+            f.seek(start)
+            chunk = f.read(end - start).decode("utf-8", errors="ignore")
+            # Run pre-tokenization on your chunk and store the counts for each pre-token
