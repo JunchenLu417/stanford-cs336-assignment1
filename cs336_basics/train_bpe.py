@@ -28,7 +28,7 @@ def pre_tokenization_chunk(
 
     for doc in docs:
         for token in tokenizer.finditer(doc):
-            token_bytes = tuple(ch.encode("utf-8") for ch in token.group(0))
+            token_bytes = tuple(bytes([b]) for b in token.group(0).encode("utf-8"))
             cnt[token_bytes] = cnt.get(token_bytes, 0) + 1
 
     queue.put(cnt)
@@ -71,5 +71,66 @@ def train_bpe(
         p.join()
     
     # finish the pre-tokenization phase
+
+    vocab: dict[int, bytes] = {}
+    for i in range(len(special_tokens)):
+        vocab[i] = special_tokens[i].encode("utf-8")
     
-    return ({}, [])
+    for i in range(256):
+        vocab[i + len(special_tokens)] = bytes([i])
+    
+    # initialize the vocabulary
+    cnt = (256 + len(special_tokens))  # number of merges
+    merges: list[tuple[bytes, bytes]] = []
+
+    while cnt < vocab_size:
+
+        # find one merge for each iteration, and serve as vocab at position @cnt
+
+        stats: dict[tuple[bytes, bytes], int] = {}
+
+        for token_bytes, c in counts.items():
+            for left, right in zip(token_bytes, token_bytes[1:]):
+                stats[(left, right)] = stats.get((left, right), 0) + c
+        
+        best_pair, _ = max(
+            stats.items(),
+            key=lambda item: (
+                item[1],  # frequency comes first
+                item[0]  # take the lexicographically greater pair
+            ),
+        )
+
+        merges.append(best_pair)
+        vocab[cnt] = b"".join(best_pair)
+        cnt += 1
+
+        # update the counts for next iteration
+
+        updates: list[tuple[Tuple[bytes, ...], Tuple[bytes, ...]]] = []
+        for token_bytes, _ in counts.items():
+            exists = any(
+                (left, right) == best_pair
+                for left, right in zip(token_bytes, token_bytes[1:])
+            )
+
+            if exists:
+                new_key: list[bytes] = []
+
+                should_skip: bool = False
+                for i in range(len(token_bytes)):
+                    if should_skip:
+                        should_skip = False
+                        continue
+                    if i + 1 < len(token_bytes) and (token_bytes[i], token_bytes[i+1]) == best_pair:
+                        new_key.append(b"".join(best_pair))
+                        should_skip = True
+                    else:
+                        new_key.append(token_bytes[i])
+                
+                updates.append((token_bytes, tuple(new_key)))
+        
+        for old_key, new_key in updates:
+            counts[new_key] = counts.pop(old_key)
+    
+    return (vocab, merges)
