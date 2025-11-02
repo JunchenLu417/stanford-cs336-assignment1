@@ -83,16 +83,16 @@ def train_bpe(
     cnt = (256 + len(special_tokens))  # number of merges
     merges: list[tuple[bytes, bytes]] = []
 
+    stats: dict[tuple[bytes, bytes], int] = {}
+
+    for token_bytes, c in counts.items():
+        for left, right in zip(token_bytes, token_bytes[1:]):
+            stats[(left, right)] = stats.get((left, right), 0) + c
+
     while cnt < vocab_size:
 
         # find one merge for each iteration, and serve as vocab at position @cnt
 
-        stats: dict[tuple[bytes, bytes], int] = {}
-
-        for token_bytes, c in counts.items():
-            for left, right in zip(token_bytes, token_bytes[1:]):
-                stats[(left, right)] = stats.get((left, right), 0) + c
-        
         best_pair, _ = max(
             stats.items(),
             key=lambda item: (
@@ -105,10 +105,10 @@ def train_bpe(
         vocab[cnt] = b"".join(best_pair)
         cnt += 1
 
-        # update the counts for next iteration
+        # update the counts (as well as stats) for next iteration
 
         updates: list[tuple[Tuple[bytes, ...], Tuple[bytes, ...]]] = []
-        for token_bytes, _ in counts.items():
+        for token_bytes, c in counts.items():
             exists = any(
                 (left, right) == best_pair
                 for left, right in zip(token_bytes, token_bytes[1:])
@@ -125,8 +125,24 @@ def train_bpe(
                     if i + 1 < len(token_bytes) and (token_bytes[i], token_bytes[i+1]) == best_pair:
                         new_key.append(b"".join(best_pair))
                         should_skip = True
+
+                        stats[best_pair] -= c
+
+                        if i > 0:
+                            stats[(token_bytes[i-1], token_bytes[i])] -= c
+
+                        if i + 2 < len(token_bytes):
+                            stats[(token_bytes[i+1], token_bytes[i+2])] -= c
+
                     else:
                         new_key.append(token_bytes[i])
+                
+                for i in range(len(new_key)):
+                    if new_key[i] == b"".join(best_pair):
+                        if i - 1 >= 0:
+                            stats[(new_key[i-1], new_key[i])] = stats.get((new_key[i-1], new_key[i]), 0) + c
+                        if i + 1 < len(new_key):
+                            stats[(new_key[i], new_key[i+1])] = stats.get((new_key[i], new_key[i+1]), 0) + c
                 
                 updates.append((token_bytes, tuple(new_key)))
         
