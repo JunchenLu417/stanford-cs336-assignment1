@@ -1,6 +1,9 @@
 from typing import Iterable
 import regex as re
 
+from concurrent.futures import ThreadPoolExecutor
+from multiprocessing import cpu_count
+
 class Tokenizer:
 
     def __init__(self, vocab: dict[int, bytes], merges: list[tuple[bytes, bytes]], \
@@ -64,8 +67,17 @@ class Tokenizer:
             else:
                 PAT = r"""'(?:[sdmt]|ll|ve|re)| ?\p{L}+| ?\p{N}+| ?[^\s\p{L}\p{N}]+|\s+(?!\S)|\s+"""
                 tokenizer = re.compile(PAT)
+                words: list[str] = []
                 for word in tokenizer.finditer(doc):
-                    tokens += self.encode_word(word.group(0))
+                    # tokens += self.encode_word(word.group(0))
+                    words.append(word.group(0))
+                
+                # use thread pool here to tokenize words in parallel
+                num_workers: int = cpu_count()
+                with ThreadPoolExecutor(max_workers=num_workers) as pool:
+                    futures = [pool.submit(self.encode_word, w) for w in words]
+                    for f in futures:
+                        tokens += f.result()
 
         return tokens
     
