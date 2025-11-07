@@ -51,6 +51,30 @@ class Tokenizer:
         return [self.token2id[token] for token in token_bytes]
     
 
+    def encode_doc(self, doc: str) -> list[int]:
+
+        doc_tokens: list[int] = []
+
+        if self.special_tokens and doc in self.special_tokens:
+            doc_tokens.append(self.token2id[doc.encode("utf-8")])
+        else:
+            PAT = r"""'(?:[sdmt]|ll|ve|re)| ?\p{L}+| ?\p{N}+| ?[^\s\p{L}\p{N}]+|\s+(?!\S)|\s+"""
+            tokenizer = re.compile(PAT)
+            words: list[str] = []
+            for word in tokenizer.finditer(doc):
+                # tokens += self.encode_word(word.group(0))
+                words.append(word.group(0))
+            
+            # use thread pool here to tokenize words in parallel
+            num_workers: int = cpu_count()
+            with ThreadPoolExecutor(max_workers=num_workers) as pool:
+                futures = [pool.submit(self.encode_word, w) for w in words]
+                for f in futures:
+                    doc_tokens += f.result()
+            
+        return doc_tokens
+
+
     def encode(self, text: str) -> list[int]:
 
         tokens: list[int] = []
@@ -61,23 +85,15 @@ class Tokenizer:
         if self.special_tokens:
             pattern = re.compile("(" + "|".join(re.escape(t) for t in self.special_tokens) + ")")
             docs = re.split(pattern, text)
-        for doc in docs:
-            if self.special_tokens and doc in self.special_tokens:
-                tokens.append(self.token2id[doc.encode("utf-8")])
-            else:
-                PAT = r"""'(?:[sdmt]|ll|ve|re)| ?\p{L}+| ?\p{N}+| ?[^\s\p{L}\p{N}]+|\s+(?!\S)|\s+"""
-                tokenizer = re.compile(PAT)
-                words: list[str] = []
-                for word in tokenizer.finditer(doc):
-                    # tokens += self.encode_word(word.group(0))
-                    words.append(word.group(0))
-                
-                # use thread pool here to tokenize words in parallel
-                num_workers: int = cpu_count()
-                with ThreadPoolExecutor(max_workers=num_workers) as pool:
-                    futures = [pool.submit(self.encode_word, w) for w in words]
-                    for f in futures:
-                        tokens += f.result()
+        # for doc in docs:
+        #     tokens += self.encode_doc(doc)
+
+        # use thread pool to tokenize docs in parallel
+        num_workers: int = cpu_count()
+        with ThreadPoolExecutor(max_workers=num_workers) as pool:
+            futures = [pool.submit(self.encode_doc, d) for d in docs]
+            for f in futures:
+                tokens += f.result()
 
         return tokens
     

@@ -412,6 +412,7 @@ def test_encode_iterable_tinystories_matches_tiktoken():
     assert tokenizer.decode(all_ids) == corpus_contents
     assert reference_tokenizer.decode(reference_ids) == corpus_contents
 
+from tqdm import tqdm
 
 @pytest.mark.skipif(
     not sys.platform.startswith("linux"),
@@ -422,9 +423,13 @@ def test_encode_iterable_memory_usage():
         vocab_path=VOCAB_PATH,
         merges_path=MERGES_PATH,
     )
+
+    with open(FIXTURES_PATH / "tinystories_sample_5M.txt") as f:
+        total_lines = sum(1 for _ in f)
+
     with open(FIXTURES_PATH / "tinystories_sample_5M.txt") as f:
         ids = []
-        for _id in _encode_iterable(tokenizer, f):
+        for _id in tqdm(_encode_iterable(tokenizer, f), total=total_lines, desc="Encoding"):
             ids.append(_id)
 
 
