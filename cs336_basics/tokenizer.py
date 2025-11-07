@@ -72,7 +72,9 @@ class Tokenizer:
 
     def encode_iterable(self, iterable: Iterable[str]) -> Iterable[int]:
 
-        return None
+        for text in iterable:  # take one line from the file handler
+            for token in self.encode(text):
+                yield token  # the return value is a int generator
     
 
     def decode(self, ids: list[int]) -> str:
